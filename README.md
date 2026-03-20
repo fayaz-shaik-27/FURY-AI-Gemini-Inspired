@@ -7,17 +7,11 @@ Send a **voice message** → get a smart **voice reply** — all automated!
 
 ## 🏗️ Architecture
 
-```
-User Voice Message (.ogg)
-        ↓
-[Speech-to-Text]  openai-whisper (local)
-        ↓
-[AI Response]     Groq LLM (llama3-8b) + per-user memory
-        ↓
-[Text-to-Speech]  gTTS → .ogg (Opus)
-        ↓
-Voice Reply sent back via Telegram
-```
+### Option A: Telegram Bot (Voicemail)
+User Voice (.ogg) → Whisper → LLM → gTTS → Voice Reply
+
+### Option B: Standalone Web Assistant (Gemini UI)
+Browser Audio (WebM) → FastAPI → Whisper → LLM → gTTS → Browser Audio
 
 ---
 
@@ -25,13 +19,16 @@ Voice Reply sent back via Telegram
 
 ```
 Voice Automation/
-├── main.py              # Telegram bot – entry point
-├── ai_handler.py        # LLM logic, memory, intent detection
-├── speech_to_text.py    # Whisper STT (ogg → wav → text)
-├── text_to_speech.py    # gTTS TTS (text → ogg)
+├── main.py              # Telegram bot entry point
+├── api.py               # Web App (FastAPI) entry point
+├── ai_handler.py        # LLM logic & memory
+├── speech_to_text.py    # Whisper STT
+├── text_to_speech.py    # gTTS TTS
 ├── requirements.txt     # Python dependencies
-├── .env.sample          # Environment variable template
-└── audio_output/        # Temp audio files (auto-created)
+├── .env.sample          # Environment template
+└── frontend/            # React + Vite Web App
+    ├── src/             # Gemini-inspired UI
+    └── tailwind.config.js
 ```
 
 ---
@@ -104,19 +101,16 @@ Open Telegram, find your bot, and send a voice message! 🎉
 3. Connect your GitHub repo
 4. Set the following:
 
-| Setting | Value |
-|---|---|
-| **Environment** | Python 3 |
-| **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `python main.py` |
+| Setting | Telegram Bot Value | Web Assistant Value |
+|---|---|---|
+| **Environment** | Python 3 | Python 3 |
+| **Build Command** | `pip install -r requirements.txt` | `cd frontend && npm install && npm run build && cd .. && pip install -r requirements.txt` |
+| **Start Command** | `python main.py` | `python api.py` |
 
-5. Add **Environment Variables** in the Render dashboard:
+5. Add **Environment Variables** (Render Dashboard):
    - `TELEGRAM_BOT_TOKEN`: (Your bot token)
    - `GROQ_API_KEY`: (Your Groq key)
-   - `GROQ_MODEL`: `llama-3.3-70b-versatile`
-   - `WHISPER_MODEL`: `base`
-   - `ASSISTANT_NAME`: `Aria` (or your name)
-   - `PORT`: `8080` (Render will use this for the health check)
+   - `PORT`: `8000` (FastAPI default)
 
 6. Click **Deploy** and wait ~2 minutes.
 
