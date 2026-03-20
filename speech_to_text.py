@@ -34,54 +34,63 @@ def _get_model() -> whisper.Whisper:
     return _model
 
 
+def _convert_to_wav(audio_path: str) -> str:
+    """
+    Converts any browser audio format to 16kHz mono WAV.
+    Handles: .ogg, .webm, .mp4, .m4a, .wav
+    """
+    wav_path = os.path.splitext(audio_path)[0] + "_converted.wav"
+    ext = os.path.splitext(audio_path)[1].lower()
+
+    try:
+        if ext in (".ogg",):
+            audio = AudioSegment.from_ogg(audio_path)
+        elif ext in (".webm", ".mp4", ".m4a"):
+            audio = AudioSegment.from_file(audio_path, format=ext.lstrip("."))
+        elif ext == ".wav":
+            return audio_path  # Already WAV
+        else:
+            audio = AudioSegment.from_file(audio_path)  # Let pydub auto-detect
+
+        audio = audio.set_frame_rate(16000).set_channels(1)
+        audio.export(wav_path, format="wav")
+        logger.debug(f"Converted {audio_path} → {wav_path}")
+        return wav_path
+    except Exception as e:
+        logger.warning(f"pydub conversion failed ({e}), passing raw file to Whisper")
+        return audio_path  # Let Whisper try natively with ffmpeg
+
+
+# Keep old name for backward compatibility
 def ogg_to_wav(ogg_path: str) -> str:
-    """
-    Converts an .ogg audio file to .wav format.
-    Whisper works best with 16kHz mono WAV audio.
-
-    Args:
-        ogg_path: Absolute path to the source .ogg file.
-
-    Returns:
-        Absolute path to the generated .wav file.
-    """
-    wav_path = ogg_path.replace(".ogg", ".wav")
-    audio = AudioSegment.from_ogg(ogg_path)
-
-    # Whisper prefers 16kHz mono audio — keeps file size small too.
-    audio = audio.set_frame_rate(16000).set_channels(1)
-    audio.export(wav_path, format="wav")
-
-    logger.debug(f"Converted {ogg_path} → {wav_path}")
-    return wav_path
+    return _convert_to_wav(ogg_path)
 
 
 def transcribe(audio_path: str) -> str:
     """
-    Transcribes a WAV (or OGG) audio file using Whisper.
-
-    Args:
-        audio_path: Path to the audio file.
-
-    Returns:
-        Transcribed text string. Empty string on failure.
+    Transcribes any audio file using Whisper.
+    Handles browser formats: .webm, .ogg, .mp4, .wav
     """
+    wav_path = None
     try:
-        # Convert to WAV if we received an OGG file directly
-        if audio_path.endswith(".ogg"):
-            audio_path = ogg_to_wav(audio_path)
+        # Convert to WAV for best Whisper accuracy
+        original_ext = os.path.splitext(audio_path)[1].lower()
+        if original_ext != ".wav":
+            wav_path = _convert_to_wav(audio_path)
+        else:
+            wav_path = audio_path
 
         model = _get_model()
-        logger.info(f"Transcribing: {audio_path}")
+        logger.info(f"Transcribing: {wav_path}")
 
         result = model.transcribe(
-            audio_path,
-            fp16=False,   # Disable half-precision; most CPUs don't support it
+            wav_path,
+            fp16=False,    # Disable half-precision; most CPUs don't support it
             language=None  # Auto-detect language
         )
 
         text = result.get("text", "").strip()
-        logger.info(f"Transcription result: '{text}'")
+        logger.info(f"Transcription result: '{text[:80]}'")
         return text
 
     except Exception as e:
@@ -89,10 +98,13 @@ def transcribe(audio_path: str) -> str:
         return ""
 
     finally:
-        # Clean up temporary audio files to save disk space
-        for path in [audio_path, audio_path.replace(".wav", ".ogg")]:
-            if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+        # Clean up converted WAV (but not if it's the original)
+        if wav_path and wav_path != audio_path and os.path.exists(wav_path):
+            try:
+                os.remove(wav_path)
+            except OSError:
+                pass
+
+
+# Alias used by api.py
+transcribe_voice = transcribe

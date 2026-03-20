@@ -10,7 +10,11 @@ openai-whisper
 
 # ── Audio conversion (ogg → wav for Whisper) ─────────────────
 pydub
-audioop-lts          # Required for Python 3.13+ (audioop was removed)
+audioop-lts>=0.2.1
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+          # Required for Python 3.13+ (audioop was removed)
 
 # ── Text-to-Speech ────────────────────────────────────────────
 gTTS
