@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────
 #  Fury AI Voice Assistant  |  requirements.txt
-#  © 2024 Fayaz Ahmed Shaik. All rights reserved.
+#  © 2026 Fayaz Ahmed Shaik. All rights reserved.
 # ─────────────────────────────────────────────────────────────
 
 # ── Web Framework ─────────────────────────────────────────────

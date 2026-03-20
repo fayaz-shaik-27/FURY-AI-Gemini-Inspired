@@ -1,6 +1,6 @@
 """
 speech_to_text.py
-© 2024 Fayaz Ahmed Shaik. All rights reserved.
+© 2026 Fayaz Ahmed Shaik. All rights reserved.
 ─────────────────
 Converts browser audio into a plain-text transcript using the
 Groq Whisper API (cloud-based, no local PyTorch needed).

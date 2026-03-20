@@ -1,6 +1,6 @@
 """
 text_to_speech.py
-© 2024 Fayaz Ahmed Shaik. All rights reserved.
+© 2026 Fayaz Ahmed Shaik. All rights reserved.
 ─────────────────
 Converts text into an MP3 audio file using Google Text-to-Speech (gTTS).
 No pydub or ffmpeg needed — modern browsers play MP3 natively.

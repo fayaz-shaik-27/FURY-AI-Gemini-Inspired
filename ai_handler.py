@@ -1,6 +1,6 @@
 """
 ai_handler.py
-© 2024 Fayaz Ahmed Shaik. All rights reserved.
+© 2026 Fayaz Ahmed Shaik. All rights reserved.
 ─────────────
 Handles all AI intelligence:
   - Maintains per-user conversation memory (in-memory dict)

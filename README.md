@@ -2,7 +2,7 @@
 
 > A Gemini-inspired AI voice assistant that lives in your browser.  
 > Built with FastAPI, OpenAI Whisper, Groq (Llama 3), and gTTS.  
-> © 2024 Fayaz Ahmed Shaik. All rights reserved.
+> © 2026 Fayaz Ahmed Shaik. All rights reserved.
 
 ---
 
@@ -85,5 +85,5 @@ Visit: **[http://localhost:5173](http://localhost:5173)**
 ---
 
 ## 📄 License
-MIT © 2024 **Fayaz Ahmed Shaik**. All rights reserved.  
+MIT © 2026 **Fayaz Ahmed Shaik**. All rights reserved.  
 Build something awesome! 🚀

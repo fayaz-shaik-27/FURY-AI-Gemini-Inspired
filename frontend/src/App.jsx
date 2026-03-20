@@ -281,7 +281,7 @@ export default function App() {
         </section>
       </main>
       <footer className="app-footer">
-        <p>© 2024 Fayaz Ahmed Shaik. All rights reserved.</p>
+        <p>© 2026 Fayaz Ahmed Shaik. All rights reserved.</p>
       </footer>
     </div>
   );
