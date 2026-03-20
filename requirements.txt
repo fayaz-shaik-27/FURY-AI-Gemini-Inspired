@@ -15,8 +15,10 @@ openai-whisper
 
 # ── Audio Processing ──────────────────────────────────────────
 # pydub: convert browser audio (webm) to WAV for Whisper
+# audioop-lts: required for Python 3.13+ (audioop was removed from stdlib)
 # ffmpeg binary is pre-installed on Render — no extra step needed.
 pydub
+audioop-lts>=0.2.1
 
 # ── Text-to-Speech ────────────────────────────────────────────
 gTTS
