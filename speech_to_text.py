@@ -1,5 +1,6 @@
 """
 speech_to_text.py
+© 2024 Fayaz Ahmed Shaik. All rights reserved.
 ─────────────────
 Converts a Telegram .ogg voice file into a plain-text transcript
 using OpenAI Whisper (runs fully locally – no API key needed).

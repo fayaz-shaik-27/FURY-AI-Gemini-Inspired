@@ -1,5 +1,6 @@
 """
 text_to_speech.py
+© 2024 Fayaz Ahmed Shaik. All rights reserved.
 ─────────────────
 Converts a text string into a Telegram-compatible .ogg voice file
 using Google Text-to-Speech (gTTS) — completely free, no API key needed.

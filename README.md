@@ -121,4 +121,5 @@ Deploy this project as a single **Web Service** on Render:
 ---
 
 ## 📄 License
-MIT – Build something awesome! 🚀
+MIT © 2024 **Fayaz Ahmed Shaik**. All rights reserved.  
+Build something awesome! 🚀

@@ -1,5 +1,6 @@
 """
 ai_handler.py
+© 2024 Fayaz Ahmed Shaik. All rights reserved.
 ─────────────
 Handles all AI intelligence:
   - Maintains per-user conversation memory (in-memory dict)
@@ -13,7 +14,6 @@ Sign up at: https://console.groq.com/
 
 import os
 import logging
-import sqlite3
 from collections import defaultdict
 from datetime import datetime
 from groq import Groq
@@ -56,61 +56,6 @@ Today's date is {datetime.now().strftime("%A, %B %d, %Y")}.
 # ──────────────────────────────────────────────────────────────
 _memory: dict[str | int, list[dict]] = defaultdict(list)
 
-# ──────────────────────────────────────────────────────────────
-#  SQLite Database Setup for Voicemails
-# ──────────────────────────────────────────────────────────────
-_DB_PATH = os.path.join(os.path.dirname(__file__), "voicemails.db")
-
-def _init_db():
-    """Initializes the SQLite database and create the voicemails table."""
-    conn = sqlite3.connect(_DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS voicemails (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
-            username TEXT,
-            transcript TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-# Initialize DB on import
-_init_db()
-
-def save_voicemail(user_id: str | int, username: str, transcript: str):
-    """Saves a transcribed voice message to the database as a voicemail."""
-    try:
-        conn = sqlite3.connect(_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO voicemails (user_id, username, transcript) VALUES (?, ?, ?)",
-            (user_id, username, transcript)
-        )
-        conn.commit()
-        conn.close()
-        logger.info(f"Voicemail saved for user {user_id}")
-    except Exception as e:
-        logger.error(f"Failed to save voicemail: {e}")
-
-def get_voicemails(limit: int = 10):
-    """Retrieves the most recent voicemails from the database."""
-    try:
-        conn = sqlite3.connect(_DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id, username, transcript, timestamp FROM voicemails ORDER BY timestamp DESC LIMIT ?",
-            (limit,)
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        return rows
-    except Exception as e:
-        logger.error(f"Failed to retrieve voicemails: {e}")
-        return []
-
 # How many past messages to keep per user (controls context window)
 _MAX_HISTORY_PAIRS = 10  # 10 pairs = 20 messages kept
 
@@ -127,6 +72,7 @@ _INTENT_PATTERNS: dict[str, list[str]] = {
     "question": ["what", "when", "where", "why", "how", "who", "which", "?"],
     "affirmation": ["yes", "yeah", "yep", "sure", "okay", "ok", "absolutely", "of course"],
     "negation": ["no", "nope", "nah", "not really", "i don't think so"],
+    "creator": ["who is your creator", "who created you", "who made you", "who is your developer"],
 }
 
 
@@ -201,6 +147,12 @@ def generate_response(user_id: str | int, user_text: str) -> str:
     """
     intent = detect_intent(user_text)
     logger.info(f"User {user_id} | Intent: {intent} | Input: '{user_text[:80]}'")
+
+    if intent == "creator":
+        creator_reply = "My creator is Fayaz Ahmed, His screen name is Fury So he named me Fury"
+        add_to_history(user_id, "user", user_text)
+        add_to_history(user_id, "assistant", creator_reply)
+        return creator_reply
 
     # Store user's message in memory
     add_to_history(user_id, "user", user_text)
