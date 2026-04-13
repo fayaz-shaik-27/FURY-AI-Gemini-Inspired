@@ -8,8 +8,9 @@ import os
 import uuid
 import logging
 import base64
-
+import random
 # ── Load env variables FIRST before any other local imports ──────────────────
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -26,6 +27,7 @@ import speech_to_text as stt
 import ai_handler as ai
 import text_to_speech as tts
 import auth_handler as auth
+import email_handler as em
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -56,6 +58,10 @@ class AuthRequest(BaseModel):
     email: str
     password: str
 
+class OTPRequest(BaseModel):
+    email: str
+    otp: str
+
 class VoiceResponse(BaseModel):
     transcript: str
     ai_text: str
@@ -82,11 +88,61 @@ async def health_check():
 
 @app.post("/api/auth/signup")
 async def signup(body: AuthRequest):
-    """Register a new user. Returns user info + access token."""
+    """
+    Step 1 of Signup: Generate OTP and send email.
+    We don't create or check the Supabase account until OTP is verified 
+    to prevent premature account creation.
+    """
     try:
-        result = auth.sign_up(body.email, body.password)
+        
+        # Generate 6-digit OTP
+        otp = f"{random.randint(100000, 999999)}"
+        
+        # Store pending registration
+        auth._pending_registrations[body.email] = {
+            "password": body.password,
+            "otp": otp
+        }
+        
+        # Send Email
+        success = em.send_otp_email(body.email, otp)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to send verification email. Please try again.")
+            
+        return {"status": "pending_otp", "message": "OTP sent to your email."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Signup error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error during signup")
+
+
+@app.post("/api/auth/verify-otp")
+async def verify_otp(body: OTPRequest):
+    """
+    Step 2 of Signup: Verify OTP and create Supabase account.
+    """
+    pending = auth._pending_registrations.get(body.email)
+    if not pending:
+        raise HTTPException(status_code=400, detail="No pending registration found for this email.")
+    
+    if pending["otp"] != body.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP code. Please try again.")
+    
+    # OTP matches! Now create the actual Supabase account
+    try:
+        result = auth.sign_up(body.email, pending["password"])
+        
+        # Clean up pending store
+        del auth._pending_registrations[body.email]
+        
+        # Send Welcome Email (Background-ish)
+        em.send_welcome_email(body.email)
+        
         return result
     except Exception as e:
+        logger.error(f"OTP Verification success but Supabase failed: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 

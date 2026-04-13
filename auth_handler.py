@@ -22,9 +22,11 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     logger.warning("SUPABASE_URL or SUPABASE_ANON_KEY is not set. Auth will not work.")
 
 _supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+_pending_registrations = {} # email -> {password, otp, expires}
 
 
 # ── Auth helpers ─────────────────────────────────────────────────────────────
+
 
 def sign_up(email: str, password: str) -> dict:
     """

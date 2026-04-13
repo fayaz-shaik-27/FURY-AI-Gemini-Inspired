@@ -121,7 +121,9 @@ function MessageBubble({ msg, index }) {
       style={{ animationDelay: `${index * 40}ms` }}
     >
       {!isUser && (
-        <div className="bubble-avatar"><div className="avatar-gem" /></div>
+        <div className="bubble-avatar">
+          <img src="/logo.png" alt="FuryAI" />
+        </div>
       )}
       <div className={`bubble ${isUser ? 'bubble-user' : 'bubble-ai'}`}>
         {msg.text}
@@ -135,6 +137,8 @@ function AuthScreen({ onAuthSuccess }) {
   const [tab, setTab] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [isPendingOtp, setIsPendingOtp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -153,9 +157,10 @@ function AuthScreen({ onAuthSuccess }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Something went wrong.');
-      if (tab === 'signup' && !data.access_token) {
-        setInfo('Account created! Please check your email to confirm, then log in.');
-        setTab('login');
+      
+      if (tab === 'signup' && data.status === 'pending_otp') {
+        setIsPendingOtp(true);
+        setInfo('A 6-digit verification code has been sent to your email.');
       } else {
         localStorage.setItem('fury_token', data.access_token);
         localStorage.setItem('fury_user', JSON.stringify(data.user));
@@ -167,6 +172,73 @@ function AuthScreen({ onAuthSuccess }) {
       setLoading(false);
     }
   };
+
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setError(''); setInfo('');
+    if (!otp || otp.length < 6) { setError('Please enter the 6-digit code.'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Invalid OTP.');
+      
+      localStorage.setItem('fury_token', data.access_token);
+      localStorage.setItem('fury_user', JSON.stringify(data.user));
+      onAuthSuccess(data.user, data.access_token);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (isPendingOtp) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-logo">
+            <img src="/logo.png" alt="FuryAI Logo" className="logo-img" />
+            <span className="logo-text">Fury <span className="logo-sub">AI</span></span>
+          </div>
+          <h2 className="auth-otp-title">Verify Your Email</h2>
+          <p className="auth-tagline">Enter the 6-digit code sent to <strong>{email}</strong></p>
+          <form className="auth-form" onSubmit={handleVerifyOtp}>
+            <div className="auth-field">
+              <label htmlFor="auth-otp">Verification Code</label>
+              <input
+                id="auth-otp"
+                type="text"
+                className="auth-input otp-input"
+                placeholder="000000"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                maxLength={6}
+                required
+              />
+            </div>
+            {error && <div className="auth-error">⚠️ {error}</div>}
+            {info && <div className="auth-info">✅ {info}</div>}
+            <button type="submit" className="auth-btn" disabled={loading}>
+              {loading ? 'Verifying…' : 'Verify & Create Account'}
+            </button>
+            <button
+              type="button"
+              className="auth-link"
+              style={{ width: '100%', marginTop: '1rem' }}
+              onClick={() => setIsPendingOtp(false)}
+            >
+              ← Back to signup
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-screen">
@@ -188,7 +260,7 @@ function AuthScreen({ onAuthSuccess }) {
           {error && <div className="auth-error">⚠️ {error}</div>}
           {info && <div className="auth-info">✅ {info}</div>}
           <button type="submit" className="auth-btn" disabled={loading}>
-            {loading ? (tab === 'login' ? 'Logging in…' : 'Creating account…') : (tab === 'login' ? 'Login' : 'Create Account')}
+            {loading ? (tab === 'login' ? 'Logging in…' : 'Sending OTP…') : (tab === 'login' ? 'Login' : 'Create Account')}
           </button>
         </form>
         <p className="auth-switch">
@@ -200,6 +272,7 @@ function AuthScreen({ onAuthSuccess }) {
     </div>
   );
 }
+
 
 // ── History View ──────────────────────────────────────────────────────────────
 function HistoryView({ accessToken, onSessionSelect, onBack, onUnauthorized }) {
@@ -383,11 +456,11 @@ export default function App() {
     audioCtxRef.current = ctx;
     analyserRef.current = analyser;
 
-    // Connect AI audio element once
+    // Connect AI audio element
     if (audioRef.current) {
       const source = ctx.createMediaElementSource(audioRef.current);
-      source.connect(analyser);
-      analyser.connect(ctx.destination);
+      source.connect(analyser); // For visualization
+      source.connect(ctx.destination); // For hearing AI response
       aiSourceRef.current = source;
     }
   };
@@ -482,7 +555,7 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      // Connect mic to visualizer
+      // Connect mic to visualizer (WITHOUT connecting to destination/speakers)
       if (micSourceRef.current) micSourceRef.current.disconnect();
       const source = audioCtxRef.current.createMediaStreamSource(stream);
       source.connect(analyserRef.current);
