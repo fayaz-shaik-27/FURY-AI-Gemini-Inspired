@@ -1113,3 +1113,135 @@ html, body, #root {
   border-color: var(--blue) !important;
   background: rgba(138, 180, 248, 0.12) !important;
 }
+
+/* ── Image Upload & Multimodal UI ────────────────────────────────────────── */
+
+/* Orb row: image btn + orb + send btn */
+.orb-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+}
+
+/* Action buttons (image upload, send image) */
+.action-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+.action-btn:hover:not(:disabled) {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.2);
+}
+.action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.action-btn-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+  border: none;
+  background: none;
+}
+
+/* Image upload button accent */
+.image-upload-btn {
+  border-color: rgba(138,180,248,0.25);
+  background: rgba(138,180,248,0.06);
+}
+.image-upload-btn:hover:not(:disabled) {
+  background: rgba(138,180,248,0.15);
+  color: var(--blue);
+  border-color: rgba(138,180,248,0.4);
+}
+
+/* Send image button accent */
+.send-image-btn {
+  border-color: rgba(129,201,149,0.35);
+  background: rgba(129,201,149,0.1);
+  color: var(--green);
+  animation: sendPulse 1.5s ease-in-out infinite;
+}
+.send-image-btn:hover {
+  background: rgba(129,201,149,0.2) !important;
+  border-color: rgba(129,201,149,0.5) !important;
+  color: var(--green) !important;
+}
+@keyframes sendPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(129,201,149,0.3); }
+  50%      { box-shadow: 0 0 0 8px rgba(129,201,149,0); }
+}
+
+/* Image preview bar (above the orb) */
+.image-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(138,180,248,0.08);
+  border: 1px solid rgba(138,180,248,0.2);
+  border-radius: 14px;
+  animation: bubbleIn 0.3s ease both;
+}
+
+.image-preview-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.image-preview-label {
+  font-size: 0.82rem;
+  color: var(--blue);
+  font-weight: 500;
+}
+
+.image-preview-remove {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: var(--transition);
+  margin-left: auto;
+}
+.image-preview-remove:hover {
+  background: rgba(242,139,130,0.15);
+  color: var(--red);
+}
+
+/* Bubble image (inside user message bubbles) */
+.bubble-image {
+  max-width: 100%;
+  max-height: 200px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  display: block;
+  object-fit: cover;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* ── Mobile adjustments for image upload ─────────────────────────────────── */
+@media (max-width: 768px) {
+  .orb-row { gap: 16px; }
+  .action-btn { width: 40px; height: 40px; }
+  .action-btn svg { width: 18px; height: 18px; }
+  .image-preview-bar { padding: 6px 10px; }
+  .image-preview-thumb { width: 36px; height: 36px; }
+  .bubble-image { max-height: 150px; }
+}

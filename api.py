@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── FastAPI imports ───────────────────────────────────────────────────────────
-from fastapi import FastAPI, UploadFile, File, HTTPException, Header
+from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -89,18 +89,25 @@ async def health_check():
 @app.post("/api/auth/signup")
 async def signup(body: AuthRequest):
     """
-    Step 1 of Signup: Validate input, generate OTP, and send verification email.
-    The Supabase account is NOT created here — it is only created after OTP
-    verification in Step 2, preventing unverified accounts from existing.
+    Step 1 of Signup: Check for existing account, generate OTP, send email.
+    NO Supabase account is created here — only after OTP verification in Step 2.
+    Uses sign_in to safely detect existing accounts (no side effects).
     """
     try:
         # Basic validation
         if len(body.password) < 6:
             raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
 
+        # Check if this email is already registered in Supabase BEFORE sending OTP.
+        # Uses a database RPC function — read-only, no side effects.
+        if auth.email_exists(body.email):
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Please log in instead."
+            )
+
         # Check if there's already a pending registration for this email
         if body.email in auth._pending_registrations:
-            # Allow re-sending OTP (overwrite the old one)
             logger.info(f"Re-sending OTP for pending registration: {body.email}")
 
         # Generate a 6-digit OTP
@@ -115,7 +122,6 @@ async def signup(body: AuthRequest):
         # Send the verification email
         success = em.send_otp_email(body.email, otp)
         if not success:
-            # Clean up since email failed — user can retry
             del auth._pending_registrations[body.email]
             raise HTTPException(status_code=500, detail="Failed to send verification email. Please try again.")
 
@@ -160,10 +166,9 @@ async def verify_otp(body: OTPRequest):
 
     except Exception as e:
         err_msg = str(e).lower()
-        if "already signed up" in err_msg or "already registered" in err_msg:
-            # Edge case: account was created between Step 1 and Step 2
+        if "already signed up" in err_msg or "already registered" in err_msg or "log in" in err_msg:
             del auth._pending_registrations[body.email]
-            raise HTTPException(status_code=400, detail="An account with this email already exists. Please log in.")
+            raise HTTPException(status_code=409, detail="An account with this email already exists. Please log in.")
         logger.error(f"Account creation failed after OTP verification: {e}")
         raise HTTPException(status_code=500, detail="Verification succeeded but account creation failed. Please try again.")
 
@@ -246,13 +251,18 @@ async def delete_session(session_id: str, authorization: Optional[str] = Header(
 
 @app.post("/api/voice/process", response_model=VoiceResponse)
 async def process_voice(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
+    image: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None),
     x_session_id: Optional[str] = Header(None, alias="X-Session-ID")
 ):
     """
-    Receive audio blob from browser → STT → LLM → TTS → return base64 audio.
-    Now supports session-based context.
+    Multimodal processing:
+    1. (Optional) Audio → STT
+    2. (Optional) Image → Base64
+    3. (Optional) Text
+    4. Combine → LLM (Vision if image present) → TTS → return transcript + ai_text + audio_base64
     """
     token = _get_token(authorization)
     user = auth.get_user(token)
@@ -260,94 +270,94 @@ async def process_voice(
         raise HTTPException(status_code=401, detail="Invalid token.")
 
     user_id = user["id"]
-    
-    # 1. Handle Session ID
-    if not x_session_id:
-        # If no session ID provided, we can't maintain context correctly across turns
-        # but for safety let's generate one if missing
-        session_id = uuid.uuid4().hex
-    else:
-        session_id = x_session_id
+    session_id = x_session_id or uuid.uuid4().hex
 
-    # 2. Ensure session history is loaded in AI memory if it's a resume
+    # Ensure session history is loaded
     existing_mem = ai.get_history(session_id)
     if not existing_mem:
-        # Try loading from DB
         db_history = auth.get_history(token, user_id, session_id=session_id)
         if db_history:
             ai.load_history_to_memory(session_id, db_history)
 
-    # Temporary request ID for logging
-    request_id = uuid.uuid4().hex[:8] 
+    request_id = uuid.uuid4().hex[:8]
+    transcript = text or ""
+    image_b64 = None
 
-    # Determine file extension
-    content_type = file.content_type or "audio/webm"
-    ext = ".ogg" if "ogg" in content_type else ".webm"
-    input_path = os.path.join(TEMP_DIR, f"{request_id}_in{ext}")
+    # ── 1. Handle Image ───────────────────────────────────────────────────────
+    if image:
+        img_content = await image.read()
+        image_b64 = base64.b64encode(img_content).decode("utf-8")
+        logger.info(f"[{session_id}] Image received: {len(img_content)} bytes")
 
+    # ── 2. Handle Audio (STT) ──────────────────────────────────────────────────
+    input_path = None
+    if file:
+        content_type = file.content_type or "audio/webm"
+        ext = ".ogg" if "ogg" in content_type else ".webm"
+        input_path = os.path.join(TEMP_DIR, f"{request_id}_in{ext}")
+
+        try:
+            content = await file.read()
+            if len(content) > 100:
+                with open(input_path, "wb") as f:
+                    f.write(content)
+
+                logger.info(f"[{session_id}] User {user['email']} | Received {len(content)} bytes ({content_type})")
+                audio_transcript = stt.transcribe_voice(input_path)
+                if audio_transcript and audio_transcript.strip():
+                    transcript = (transcript + " " + audio_transcript).strip()
+        except Exception as e:
+            logger.error(f"STT Error: {e}")
+        finally:
+            if input_path and os.path.exists(input_path):
+                try:
+                    os.remove(input_path)
+                except OSError:
+                    pass
+
+    if not transcript and not image_b64:
+        raise HTTPException(status_code=400, detail="No input provided (voice, text, or image)")
+
+    if not transcript and image_b64:
+        transcript = "What is in this image?"  # Default prompt if only image sent
+
+    logger.info(f"[{session_id}] Transcript: {transcript[:80]}")
+
+    # ── 3. LLM response (multimodal if image_b64 is set) ──────────────────────
     try:
-        # ── 1. Save uploaded audio ────────────────────────────────────────────
-        content = await file.read()
-        if len(content) < 100:
-            raise HTTPException(status_code=400, detail="Audio file too small — no audio captured")
-
-        with open(input_path, "wb") as f:
-            f.write(content)
-
-        logger.info(f"[{session_id}] User {user['email']} | Received {len(content)} bytes ({content_type})")
-
-        # ── 2. Speech → Text ──────────────────────────────────────────────────
-        transcript = stt.transcribe_voice(input_path)
-        if not transcript or not transcript.strip():
-            raise HTTPException(status_code=400, detail="Could not transcribe audio — please speak clearly")
-
-        logger.info(f"[{session_id}] Transcript: {transcript[:80]}")
-
-        # ── 3. LLM response ───────────────────────────────────────────────────
-        ai_text = ai.generate_response(session_id, transcript)
+        ai_text = ai.generate_response(session_id, transcript, image_data=image_b64)
         logger.info(f"[{request_id}] AI reply: {ai_text[:80]}")
-
-        # ── 4. Generate Title if session is new ──────────────────────────────
-        session_title = None
-        # Check if this is the first exchange (now 1 user message in memory)
-        history = ai.get_history(session_id)
-        if len(history) <= 2: # User msg + AI reply
-            session_title = ai.generate_session_title(transcript)
-            logger.info(f"[{request_id}] Generated session title: {session_title}")
-
-        # ── 5. Persist both messages to Supabase ──────────────────────────────
-        auth.save_message(token, user_id, "user", transcript, session_id=session_id, session_title=session_title)
-        auth.save_message(token, user_id, "assistant", ai_text, session_id=session_id, session_title=session_title)
-
-        # ── 5. Text → Speech ──────────────────────────────────────────────────
-        ogg_path = await tts.synthesize(ai_text)
-        if not ogg_path or not os.path.exists(ogg_path):
-            raise HTTPException(status_code=500, detail="TTS synthesis failed")
-
-        # ── 6. Encode audio to base64 ─────────────────────────────────────────
-        with open(ogg_path, "rb") as audio_file:
-            audio_b64 = base64.b64encode(audio_file.read()).decode("utf-8")
-
-        tts.cleanup(ogg_path)
-
-        return VoiceResponse(
-            transcript=transcript,
-            ai_text=ai_text,
-            audio_base64=audio_b64,
-        )
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.exception(f"[{request_id}] Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception(f"[{request_id}] LLM error: {e}")
+        raise HTTPException(status_code=500, detail="AI response generation failed")
 
-    finally:
-        if os.path.exists(input_path):
-            try:
-                os.remove(input_path)
-            except OSError:
-                pass
+    # ── 4. Generate Title if session is new ──────────────────────────────────
+    session_title = None
+    history = ai.get_history(session_id)
+    if len(history) <= 2:
+        session_title = ai.generate_session_title(transcript)
+        logger.info(f"[{request_id}] Generated session title: {session_title}")
+
+    # ── 5. Persist both messages to Supabase ──────────────────────────────────
+    auth.save_message(token, user_id, "user", transcript, session_id=session_id, session_title=session_title)
+    auth.save_message(token, user_id, "assistant", ai_text, session_id=session_id, session_title=session_title)
+
+    # ── 6. Text → Speech ─────────────────────────────────────────────────────
+    audio_b64 = ""
+    try:
+        ogg_path = await tts.synthesize(ai_text)
+        if ogg_path and os.path.exists(ogg_path):
+            with open(ogg_path, "rb") as audio_file:
+                audio_b64 = base64.b64encode(audio_file.read()).decode("utf-8")
+            tts.cleanup(ogg_path)
+    except Exception as e:
+        logger.error(f"TTS Error: {e}")
+
+    return VoiceResponse(
+        transcript=transcript,
+        ai_text=ai_text,
+        audio_base64=audio_b64,
+    )
 
 
 # ── Serve Frontend ────────────────────────────────────────────────────────────

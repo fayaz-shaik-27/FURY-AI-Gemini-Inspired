@@ -126,6 +126,9 @@ function MessageBubble({ msg, index }) {
         </div>
       )}
       <div className={`bubble ${isUser ? 'bubble-user' : 'bubble-ai'}`}>
+        {msg.image && (
+          <img src={msg.image} alt="Uploaded" className="bubble-image" />
+        )}
         {msg.text}
       </div>
     </div>
@@ -495,10 +498,12 @@ export default function App() {
   const [error, setError] = useState('');
   const [currentSessionId, setCurrentSessionId] = useState(crypto.randomUUID());
   const [sessionToDelete, setSessionToDelete] = useState(null); // Used for history view and current session deletion
+  const [pendingImage, setPendingImage] = useState(null); // {file, preview}
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef(null);
   const chatEndRef = useRef(null);
+  const imageInputRef = useRef(null);
   const audioRef = useRef(new Audio()); // Reuse one audio instance for better visualizer performance
   const audioCtxRef = useRef(null);
   const analyserRef = useRef(null);
@@ -651,7 +656,13 @@ export default function App() {
 
   const processVoice = async (blob) => {
     const formData = new FormData();
-    formData.append('file', blob, 'voice.webm');
+    if (blob) formData.append('file', blob, 'voice.webm');
+    // Attach pending image if exists
+    const imagePreview = pendingImage?.preview || null;
+    if (pendingImage?.file) {
+      formData.append('image', pendingImage.file);
+      setPendingImage(null); // Clear after attaching
+    }
     try {
       const res = await fetch('/api/voice/process', {
         method: 'POST',
@@ -670,7 +681,9 @@ export default function App() {
         throw new Error(errData.detail || `Server error ${res.status}`);
       }
       const data = await res.json();
-      setHistory((prev) => [...prev, { role: 'user', text: data.transcript }, { role: 'ai', text: data.ai_text }]);
+      const userMsg = { role: 'user', text: data.transcript };
+      if (imagePreview) userMsg.image = imagePreview;
+      setHistory((prev) => [...prev, userMsg, { role: 'ai', text: data.ai_text }]);
       if (data.audio_base64) {
         setOrbState('speaking');
         setStatusText('Fury AI is speaking…');
@@ -693,6 +706,29 @@ export default function App() {
       setOrbState('idle');
       setStatusText('Tap the microphone to begin');
     }
+  };
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file (JPEG, PNG, etc.)');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Image must be under 10MB.');
+      return;
+    }
+    const preview = URL.createObjectURL(file);
+    setPendingImage({ file, preview });
+    e.target.value = ''; // Reset so same file can be re-selected
+  };
+
+  const sendImageOnly = async () => {
+    if (!pendingImage) return;
+    setOrbState('processing');
+    setStatusText('Fury AI is analyzing the image…');
+    await processVoice(null); // No audio, just the image
   };
 
   const handleMicClick = () => { if (orbState === 'recording') stopRecording(); else if (orbState === 'idle') startRecording(); };
@@ -787,17 +823,62 @@ export default function App() {
           </div>
         </section>
         <section className="voice-stage">
+          {/* Image Preview */}
+          {pendingImage && (
+            <div className="image-preview-bar">
+              <img src={pendingImage.preview} alt="Preview" className="image-preview-thumb" />
+              <span className="image-preview-label">Image attached</span>
+              <button className="image-preview-remove" onClick={() => { URL.revokeObjectURL(pendingImage.preview); setPendingImage(null); }}>✕</button>
+            </div>
+          )}
           <div className={`waveform-area waveform-top ${orbState === 'recording' ? 'wf-visible' : ''}`}>
             <VoiceWaveform active={orbState === 'recording'} color="#ea4335" analyser={analyserRef.current} />
           </div>
-          <button
-            className={`orb-btn ${orbState === 'processing' ? 'orb-btn-inactive' : ''}`}
-            onClick={orbState === 'speaking' ? stopSpeaking : handleMicClick}
-            disabled={orbState === 'processing'}
-            aria-label={orbState === 'recording' ? 'Stop recording' : 'Start recording'}
-          >
-            <GeminiOrb state={orbState} />
-          </button>
+          <div className="orb-row">
+            {/* Image Upload Button */}
+            <input
+              type="file"
+              accept="image/*"
+              ref={imageInputRef}
+              onChange={handleImageSelect}
+              style={{ display: 'none' }}
+              id="image-upload-input"
+            />
+            <button
+              className="action-btn image-upload-btn"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={orbState === 'processing' || orbState === 'recording'}
+              title="Upload image"
+              id="image-upload-btn"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
+              </svg>
+            </button>
+            <button
+              className={`orb-btn ${orbState === 'processing' ? 'orb-btn-inactive' : ''}`}
+              onClick={orbState === 'speaking' ? stopSpeaking : handleMicClick}
+              disabled={orbState === 'processing'}
+              aria-label={orbState === 'recording' ? 'Stop recording' : 'Start recording'}
+            >
+              <GeminiOrb state={orbState} />
+            </button>
+            {/* Send Image Button (appears when image is attached and idle) */}
+            {pendingImage && orbState === 'idle' ? (
+              <button
+                className="action-btn send-image-btn"
+                onClick={sendImageOnly}
+                title="Send image to AI"
+                id="send-image-btn"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                </svg>
+              </button>
+            ) : (
+              <div className="action-btn action-btn-placeholder" />
+            )}
+          </div>
           <div className={`waveform-area waveform-bottom ${orbState === 'speaking' ? 'wf-visible' : ''}`}>
             <VoiceWaveform active={orbState === 'speaking'} color="#8ab4f8" analyser={analyserRef.current} />
           </div>

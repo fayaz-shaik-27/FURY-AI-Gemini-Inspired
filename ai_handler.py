@@ -164,13 +164,15 @@ def generate_session_title(user_text: str) -> str:
 #  Main AI response function
 # ──────────────────────────────────────────────────────────────
 
-def generate_response(session_id: str, user_text: str) -> str:
+_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+
+def generate_response(session_id: str, user_text: str, image_data: str = None) -> str:
     """
     Generates an AI response using Groq LLM, with full conversation memory.
-    Now keyed by session_id instead of user_id.
+    Supports optional image data (base64 string) for vision tasks.
     """
     intent = detect_intent(user_text)
-    logger.info(f"Session {session_id} | Intent: {intent} | Input: '{user_text[:80]}'")
+    logger.info(f"Session {session_id} | Intent: {intent} | Input: '{user_text[:80]}' | Image: {'Yes' if image_data else 'No'}")
 
     if intent == "creator":
         creator_reply = "My creator is Fayaz Ahmed, His screen name is Fury So he named me Fury"
@@ -178,18 +180,42 @@ def generate_response(session_id: str, user_text: str) -> str:
         add_to_history(session_id, "assistant", creator_reply)
         return creator_reply
 
-    # Store user's message in memory
+    # Build the full message list for the API call
+    # We don't store the image in history to keep it lean, but we use it for the current turn
+    
+    current_model = _VISION_MODEL if image_data else _MODEL
+    
+    if image_data:
+        # Groq vision models expect a specific format for multimodal content
+        current_user_msg = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_text},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{image_data}"
+                    }
+                }
+            ]
+        }
+    else:
+        current_user_msg = {"role": "user", "content": user_text}
+
+    # Store user's message in memory (only text part for history)
     add_to_history(session_id, "user", user_text)
 
-    # Build the full message list for the API call
-    messages = [{"role": "system", "content": _SYSTEM_PROMPT}] + get_history(session_id)
+    # Build history (excluding current turn which we handle specially if it has an image)
+    history = get_history(session_id)[:-1] # All except the one we just added
+    
+    messages = [{"role": "system", "content": _SYSTEM_PROMPT}] + history + [current_user_msg]
 
     try:
         response = _client.chat.completions.create(
-            model=_MODEL,
+            model=current_model,
             messages=messages,
-            max_tokens=150,       # Short = faster + better for voice
-            temperature=0.75,     # Balanced creativity vs. consistency
+            max_tokens=300 if image_data else 150, # More tokens for image descriptions
+            temperature=0.75,
             top_p=0.9,
         )
 

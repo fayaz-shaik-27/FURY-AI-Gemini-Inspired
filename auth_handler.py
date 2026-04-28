@@ -25,7 +25,22 @@ _supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 _pending_registrations = {} # email -> {password, otp, expires}
 
 
+
 # ── Auth helpers ─────────────────────────────────────────────────────────────
+
+
+def email_exists(email: str) -> bool:
+    """
+    Safely checks if a user with the given email already exists in Supabase.
+    Uses a database RPC function (check_email_exists) that queries auth.users
+    directly. This is read-only — no accounts are created, no emails are sent.
+    """
+    try:
+        res = _supabase.rpc("check_email_exists", {"lookup_email": email}).execute()
+        return res.data is True
+    except Exception as e:
+        logger.warning(f"email_exists RPC check failed: {e}")
+        return False
 
 
 def sign_up(email: str, password: str) -> dict:
