@@ -89,81 +89,101 @@ async def health_check():
 @app.post("/api/auth/signup")
 async def signup(body: AuthRequest):
     """
-    Step 1 of Signup: Generate OTP and send email.
-    We don't create or check the Supabase account until OTP is verified 
-    to prevent premature account creation.
+    Step 1 of Signup: Validate input, generate OTP, and send verification email.
+    The Supabase account is NOT created here — it is only created after OTP
+    verification in Step 2, preventing unverified accounts from existing.
     """
     try:
-        # Check if user already exists in Supabase
-        # We try to silent sign-up or check if email is registered.
-        # Since we use Step 2 for creation, we can't easily check without admin keys,
-        # but we can try a silentsignup attempt or a check in our profiles/history if one exists.
-        # BEST APPROACH: Move Supabase check to Step 1.
-        
-        try:
-            # We use sign_up with the actual password to check if email is taken.
-            # If it succeeds, the account is created, but we still send OTP for email verification intent.
-            # If it fails with "already registered", we stop here.
-            auth.sign_up(body.email, body.password)
-        except Exception as e:
-            if "already signed up" in str(e).lower() or "already registered" in str(e).lower():
-                raise HTTPException(status_code=400, detail="An account with this email already exists. Please log in.")
-            # If it's a different error (like password too short), bubbles up.
-            raise HTTPException(status_code=400, detail=str(e))
+        # Basic validation
+        if len(body.password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
 
-        # If we reach here, a new user was created in Supabase.
-        # Now we send OTP to confirm their intent/email.
+        # Check if there's already a pending registration for this email
+        if body.email in auth._pending_registrations:
+            # Allow re-sending OTP (overwrite the old one)
+            logger.info(f"Re-sending OTP for pending registration: {body.email}")
+
+        # Generate a 6-digit OTP
         otp = f"{random.randint(100000, 999999)}"
-        
-        # Store pending registration (now we just need to verify the OTP)
+
+        # Store credentials + OTP in memory ONLY (no Supabase account yet)
         auth._pending_registrations[body.email] = {
             "password": body.password,
             "otp": otp,
-            "supabase_created": True # Mark that account is already in Supabase
         }
-        
-        # Send Email
+
+        # Send the verification email
         success = em.send_otp_email(body.email, otp)
         if not success:
+            # Clean up since email failed — user can retry
+            del auth._pending_registrations[body.email]
             raise HTTPException(status_code=500, detail="Failed to send verification email. Please try again.")
-            
+
         return {"status": "pending_otp", "message": "OTP sent to your email."}
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Signup error: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error during signup")
+        raise HTTPException(status_code=500, detail="Internal server error during signup.")
 
 
 @app.post("/api/auth/verify-otp")
 async def verify_otp(body: OTPRequest):
     """
-    Step 2 of Signup: Verify OTP and return the Supabase session created in Step 1.
+    Step 2 of Signup: Verify OTP, THEN create the Supabase account.
+    Only after successful OTP verification does the account get created.
     """
     pending = auth._pending_registrations.get(body.email)
     if not pending:
-        raise HTTPException(status_code=400, detail="No pending registration found for this email.")
-    
+        raise HTTPException(status_code=400, detail="No pending registration found. Please sign up again.")
+
     if pending["otp"] != body.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP code. Please try again.")
-    
-    # OTP matches! The account was already created in Step 1.
-    # We now sign in to get a fresh session or return the one we stored.
+
+    # OTP is correct — NOW create the Supabase account
     try:
-        # Sign in with the credentials we know are correct
-        result = auth.sign_in(body.email, pending["password"])
-        
-        # Clean up pending store
+        signup_result = auth.sign_up(body.email, pending["password"])
+
+        # If Supabase has "Confirm email" enabled, sign_up won't return a session.
+        # Since we've already verified the email via our own OTP, sign in to get a token.
+        if not signup_result.get("access_token"):
+            signup_result = auth.sign_in(body.email, pending["password"])
+
+        # Clean up the pending registration
         del auth._pending_registrations[body.email]
-        
-        # Send Welcome Email
+
+        # Send Welcome Email (non-blocking, best-effort)
         em.send_welcome_email(body.email)
-        
-        return result
+
+        return signup_result
+
     except Exception as e:
-        logger.error(f"OTP Verification success but login failed: {e}")
-        raise HTTPException(status_code=400, detail="Verification successful, but login failed. Please try logging in manually.")
+        err_msg = str(e).lower()
+        if "already signed up" in err_msg or "already registered" in err_msg:
+            # Edge case: account was created between Step 1 and Step 2
+            del auth._pending_registrations[body.email]
+            raise HTTPException(status_code=400, detail="An account with this email already exists. Please log in.")
+        logger.error(f"Account creation failed after OTP verification: {e}")
+        raise HTTPException(status_code=500, detail="Verification succeeded but account creation failed. Please try again.")
+
+
+@app.post("/api/auth/resend-otp")
+async def resend_otp(body: AuthRequest):
+    """Resend a new OTP for a pending registration."""
+    pending = auth._pending_registrations.get(body.email)
+    if not pending:
+        raise HTTPException(status_code=400, detail="No pending registration found. Please sign up first.")
+
+    # Generate a fresh OTP
+    new_otp = f"{random.randint(100000, 999999)}"
+    pending["otp"] = new_otp
+
+    success = em.send_otp_email(body.email, new_otp)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to resend verification email. Please try again.")
+
+    return {"status": "pending_otp", "message": "A new OTP has been sent to your email."}
 
 
 @app.post("/api/auth/login")

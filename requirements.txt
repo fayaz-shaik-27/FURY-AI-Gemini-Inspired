@@ -22,5 +22,4 @@ python-dotenv
 # ── Supabase (Auth + Database) ────────────────────────────────
 supabase>=2.0.0
 
-# ── Email Service (Resend) ───────────────────────────────────
-resend
+# ── Email Service (Brevo SMTP — uses built-in smtplib, no extra package needed)

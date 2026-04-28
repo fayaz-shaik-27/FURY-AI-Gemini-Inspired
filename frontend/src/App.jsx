@@ -199,6 +199,25 @@ function AuthScreen({ onAuthSuccess }) {
   };
 
   if (isPendingOtp) {
+    const handleResendOtp = async () => {
+      setError(''); setInfo('');
+      setLoading(true);
+      try {
+        const res = await fetch('/api/auth/resend-otp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed to resend code.');
+        setInfo('A new verification code has been sent to your email.');
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     return (
       <div className="auth-screen">
         <div className="auth-card">
@@ -230,7 +249,16 @@ function AuthScreen({ onAuthSuccess }) {
             <button
               type="button"
               className="auth-link"
-              style={{ width: '100%', marginTop: '1rem' }}
+              style={{ width: '100%', marginTop: '0.75rem' }}
+              onClick={handleResendOtp}
+              disabled={loading}
+            >
+              Didn't receive the code? Resend
+            </button>
+            <button
+              type="button"
+              className="auth-link"
+              style={{ width: '100%', marginTop: '0.5rem' }}
               onClick={() => setIsPendingOtp(false)}
             >
               ← Back to signup
